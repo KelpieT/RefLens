@@ -1,0 +1,106 @@
+{
+  "name": "myreferences",
+  "displayName": "MyReferences",
+  "description": "Shows Find All References in a sidebar TreeView, grouped by file, with kind markers (Def/Impl/Read/Write/Ref)",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "myreferences-container",
+          "title": "MyReferences",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "myreferences-container": [
+        {
+          "id": "myreferences.resultsView",
+          "name": "References",
+          "contextualTitle": "MyReferences"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "myreferences.findReferences",
+        "title": "MyReferences: Find References at Cursor",
+        "icon": "$(references)"
+      },
+      {
+        "command": "myreferences.clearResults",
+        "title": "MyReferences: Clear Results",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "myreferences.toggleAutoUpdate",
+        "title": "MyReferences: Toggle Auto-Update on Cursor Move",
+        "icon": "$(sync)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "myreferences.findReferences",
+          "when": "view == myreferences.resultsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "myreferences.clearResults",
+          "when": "view == myreferences.resultsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "myreferences.toggleAutoUpdate",
+          "when": "view == myreferences.resultsView",
+          "group": "navigation@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "myreferences.findReferences",
+          "group": "navigation",
+          "when": "editorHasReferenceProvider"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MyReferences",
+      "properties": {
+        "myreferences.autoUpdate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically update references when the cursor moves (debounced)"
+        },
+        "myreferences.debounceMs": {
+          "type": "number",
+          "default": 500,
+          "description": "Debounce delay in milliseconds for auto-update on cursor move"
+        },
+        "myreferences.maxSnippetLength": {
+          "type": "number",
+          "default": 120,
+          "description": "Maximum character length of the inline code snippet shown per reference"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "npm run compile && vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.x"
+  }
+}
