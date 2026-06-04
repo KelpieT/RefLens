@@ -1,6 +1,6 @@
 {
-  "name": "myreferences",
-  "displayName": "MyReferences",
+  "name": "reflens",
+  "displayName": "RefLens",
   "description": "Shows Find All References in a sidebar TreeView, grouped by file, with kind markers (Def/Impl/Read/Write/Ref)",
   "version": "0.1.0",
   "publisher": "local",
@@ -12,81 +12,87 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "myreferences-container",
-          "title": "MyReferences",
+          "id": "reflens-container",
+          "title": "RefLens",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "myreferences-container": [
+      "reflens-container": [
         {
-          "id": "myreferences.resultsView",
+          "id": "reflens.resultsView",
           "name": "References",
-          "contextualTitle": "MyReferences"
+          "type": "webview",
+          "contextualTitle": "RefLens References"
         }
       ]
     },
     "commands": [
       {
-        "command": "myreferences.findReferences",
-        "title": "MyReferences: Find References at Cursor",
+        "command": "reflens.findReferences",
+        "title": "RefLens: Find References at Cursor",
         "icon": "$(references)"
       },
       {
-        "command": "myreferences.clearResults",
-        "title": "MyReferences: Clear Results",
+        "command": "reflens.clearResults",
+        "title": "RefLens: Clear Results",
         "icon": "$(clear-all)"
-      },
-      {
-        "command": "myreferences.toggleAutoUpdate",
-        "title": "MyReferences: Toggle Auto-Update on Cursor Move",
-        "icon": "$(sync)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "myreferences.findReferences",
-          "when": "view == myreferences.resultsView",
+          "command": "reflens.findReferences",
+          "when": "view == reflens.resultsView",
           "group": "navigation@1"
         },
         {
-          "command": "myreferences.clearResults",
-          "when": "view == myreferences.resultsView",
+          "command": "reflens.clearResults",
+          "when": "view == reflens.resultsView",
           "group": "navigation@2"
-        },
-        {
-          "command": "myreferences.toggleAutoUpdate",
-          "when": "view == myreferences.resultsView",
-          "group": "navigation@3"
         }
       ],
       "editor/context": [
         {
-          "command": "myreferences.findReferences",
+          "command": "reflens.findReferences",
           "group": "navigation",
           "when": "editorHasReferenceProvider"
         }
       ]
     },
     "configuration": {
-      "title": "MyReferences",
+      "title": "RefLens Settings",
       "properties": {
-        "myreferences.autoUpdate": {
+        "reflens.autoUpdate": {
           "type": "boolean",
           "default": false,
           "description": "Automatically update references when the cursor moves (debounced)"
         },
-        "myreferences.debounceMs": {
+        "reflens.debounceMs": {
           "type": "number",
           "default": 500,
           "description": "Debounce delay in milliseconds for auto-update on cursor move"
         },
-        "myreferences.maxSnippetLength": {
+        "reflens.maxSnippetLength": {
           "type": "number",
           "default": 120,
           "description": "Maximum character length of the inline code snippet shown per reference"
+        },
+        "reflens.deduplicateLines": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide duplicate references that point to the same line in the same file (keeps the highest-priority kind)"
+        },
+        "reflens.collapseAll": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start with all file/kind groups collapsed when results are shown"
+        },
+        "reflens.showFullPath": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show full relative file path instead of just the filename in results"
         }
       }
     }

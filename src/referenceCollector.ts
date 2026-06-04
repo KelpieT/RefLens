@@ -99,28 +99,43 @@ async function getDocumentHighlights(
   return kindMap;
 }
 
+// Запускает массив промисов параллельно с общим таймаутом.
+// Если таймаут срабатывает раньше — возвращает пустой массив вместо результатов.
+// Незавершённые задачи продолжают работать в фоне, но их результаты игнорируются.
+async function allWithTimeout<T>(tasks: Promise<T>[], timeoutMs: number): Promise<T[]> {
+  const timeout = new Promise<T[]>(resolve => setTimeout(() => resolve([]), timeoutMs));
+  return Promise.race([Promise.all(tasks), timeout]);
+}
+
 // ── Извлечение сниппета (строки кода) ────────────────────────────────────────
 
+// Результат чтения сниппета: текст строки и кол-во обрезанных слева символов.
+// indent нужен, чтобы вычислить точную позицию символа внутри обрезанного текста.
+interface SnippetResult { text: string; indent: number; }
+
 // Читает текст строки из файла для отображения рядом с ссылкой.
+// Возвращает обрезанный текст и длину удалённого отступа слева.
 // Сначала ищет уже открытый документ в памяти VSCode — это быстро и бесплатно.
 // Если документ не открыт — открывает файл с диска (VSCode кэширует его).
 async function readSnippet(
   uri: vscode.Uri, // URI файла
   line: number,    // номер строки (0-based)
   maxLen: number   // максимальная длина сниппета в символах
-): Promise<string> {
+): Promise<SnippetResult> {
   try {
     // Ищем документ среди уже открытых в редакторе (нет I/O)
     const openDoc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
     // Если не найден — открываем с диска (VSCode кэширует результат)
-    const doc = openDoc ?? await vscode.workspace.openTextDocument(uri);
-    // Получаем текст строки и убираем пробелы по краям
-    const text = doc.lineAt(line).text.trim();
+    const doc    = openDoc ?? await vscode.workspace.openTextDocument(uri);
+    const raw    = doc.lineAt(line).text;             // оригинальная строка с отступом
+    const ltrim  = raw.trimStart();                   // убираем только левый отступ
+    const indent = raw.length - ltrim.length;         // кол-во обрезанных слева символов
+    const text   = ltrim.trimEnd();                   // убираем правые пробелы
     // Обрезаем строку, если она длиннее maxLen, добавляем многоточие
-    return text.length <= maxLen ? text : text.slice(0, maxLen - 1) + '…';
+    return { text: text.length <= maxLen ? text : text.slice(0, maxLen - 1) + '…', indent };
   } catch {
-    // Файл недоступен (удалён, бинарный и т.д.) — возвращаем пустую строку
-    return '';
+    // Файл недоступен (удалён, бинарный и т.д.) — возвращаем пустой результат
+    return { text: '', indent: 0 };
   }
 }
 
@@ -128,9 +143,10 @@ async function readSnippet(
 
 // Результат, который collectReferences возвращает вызывающему коду
 export interface CollectorResult {
-  fileGroups: FileGroup[]; // все ссылки, сгруппированные по файлам
-  totalCount: number;      // общее количество найденных ссылок
-  symbolName: string;      // имя символа под курсором (для заголовка панели)
+  fileGroups:  FileGroup[];    // все ссылки, сгруппированные по файлам
+  totalCount:  number;         // общее количество найденных ссылок
+  symbolName:  string;         // имя символа под курсором (для заголовка панели)
+  sourceUri:   vscode.Uri;     // URI файла, в котором был курсор при запуске поиска
 }
 
 // Главная функция: собирает все ссылки на символ под курсором.
@@ -145,7 +161,7 @@ export async function collectReferences(
   const wordRange  = document.getWordRangeAtPosition(position);
   const symbolName = wordRange ? document.getText(wordRange) : '<unknown>';
   // Читаем настройку максимальной длины сниппета (по умолчанию 120 символов)
-  const maxLen     = vscode.workspace.getConfiguration('myreferences').get<number>('maxSnippetLength', 120);
+  const maxLen     = vscode.workspace.getConfiguration('reflens').get<number>('maxSnippetLength', 120);
 
   // Параллельно запускаем все 6 провайдеров — не ждём каждый по очереди.
   // Promise.all завершится, когда ответят все (или вернут пустой массив при ошибке).
@@ -160,7 +176,7 @@ export async function collectReferences(
 
   // Проверяем отмену сразу после завершения провайдеров — пользователь мог переместить курсор
   if (token.isCancellationRequested) {
-    return { fileGroups: [], totalCount: 0, symbolName };
+    return { fileGroups: [], totalCount: 0, symbolName, sourceUri: document.uri };
   }
 
   // Строим карту: ключ позиции → тип ссылки с учётом приоритета.
@@ -203,6 +219,41 @@ export async function collectReferences(
     }
   }
 
+  // ── Read/Write для ссылок в других файлах ────────────────────────────────
+  // executeDocumentHighlights работает для любого URI, не только текущего документа.
+  // Для каждого файла (кроме текущего), где есть ссылки с типом Reference,
+  // передаём позицию первой такой ссылки — провайдер вернёт Read/Write по всему файлу.
+  // Все запросы идут параллельно; общий таймаут 5 с не блокирует основной результат.
+  if (!token.isCancellationRequested) {
+    // Собираем уникальные чужие URI и позицию первой Reference-ссылки в каждом
+    const foreignFileMap = new Map<string, vscode.Position>();
+    for (const loc of allRefs) {
+      const uriStr = loc.uri.toString();
+      if (uriStr === document.uri.toString()) { continue; } // текущий файл уже обработан
+      const key = locationKey(loc.uri, loc.range.start);
+      if (kindMap.get(key) === 'Reference' && !foreignFileMap.has(uriStr)) {
+        foreignFileMap.set(uriStr, loc.range.start); // первая Reference-позиция в файле
+      }
+    }
+
+    if (foreignFileMap.size > 0) {
+      // Параллельно запрашиваем highlights для каждого чужого файла (таймаут 5 с)
+      const tasks = Array.from(foreignFileMap.entries()).map(([uriStr, pos]) =>
+        getDocumentHighlights(vscode.Uri.parse(uriStr), pos)
+      );
+      const hwMaps = await allWithTimeout(tasks, 5000);
+
+      // Применяем результаты: повышаем Reference → Read/Write там, где возможно
+      for (const hwMap of hwMaps) {
+        for (const [key, kind] of hwMap) {
+          if (kindMap.get(key) === 'Reference') {
+            kindMap.set(key, kind); // Read или Write важнее Reference
+          }
+        }
+      }
+    }
+  }
+
   // Дедублируем: собираем все позиции без повторов.
   // Сначала идут ссылки из allRefs (сохраняем исходный порядок),
   // затем позиции из типизированных провайдеров, которых не было в allRefs (редко, но возможно).
@@ -223,17 +274,21 @@ export async function collectReferences(
 
   // Снова проверяем отмену перед медленной операцией чтения файлов
   if (token.isCancellationRequested) {
-    return { fileGroups: [], totalCount: 0, symbolName };
+    return { fileGroups: [], totalCount: 0, symbolName, sourceUri: document.uri };
   }
 
   // Параллельно читаем строки кода для всех найденных позиций
   const resolved: ResolvedReference[] = await Promise.all(
-    allLocations.map(async loc => ({
-      uri:     loc.uri,
-      range:   loc.range,
-      kind:    loc.kind,
-      snippet: await readSnippet(loc.uri, loc.range.start.line, maxLen), // текст строки
-    }))
+    allLocations.map(async loc => {
+      const sr = await readSnippet(loc.uri, loc.range.start.line, maxLen);
+      return {
+        uri:           loc.uri,
+        range:         loc.range,
+        kind:          loc.kind,
+        snippet:       sr.text,    // текст строки без отступа
+        snippetIndent: sr.indent,  // кол-во обрезанных слева символов
+      };
+    })
   );
 
   // Группируем ссылки по файлам: ключ Map = строковый URI файла
@@ -254,5 +309,5 @@ export async function collectReferences(
     group.references.sort((a, b) => a.range.start.line - b.range.start.line);
   }
 
-  return { fileGroups, totalCount: resolved.length, symbolName };
+  return { fileGroups, totalCount: resolved.length, symbolName, sourceUri: document.uri };
 }
