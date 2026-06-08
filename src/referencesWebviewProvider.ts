@@ -299,6 +299,32 @@ body {
   flex-shrink:     0;
 }
 .settings-panel.hidden { display: none; }
+.kind-filter-panel {
+  display:         flex;
+  align-items:     center;
+  gap:             3px;
+  padding:         3px 8px;
+  border-bottom:   1px solid var(--vscode-panel-border);
+  background:      var(--vscode-sideBar-background, var(--vscode-editor-background));
+  flex-shrink:     0;
+  flex-wrap:       wrap;
+}
+.kind-filter-panel.hidden { display: none; }
+/* Kind filter toggle buttons — active = kind included; all off = no filter (show all) */
+.kind-fbtn {
+  border-color: transparent !important;
+  background:   transparent !important;
+  color:        inherit !important;
+  transition:   opacity 0.12s;
+}
+/* When any filter is active, dim non-selected kinds */
+.kind-filter-panel.has-filter .kind-fbtn:not(.active) { opacity: 0.28; }
+.kind-fbtn.active {
+  opacity:      1 !important;
+  border-color: currentColor !important;
+}
+.kind-fbtn:hover { opacity: 0.7; }
+.kind-fbtn.active:hover { opacity: 1 !important; }
 .tb-label {
   font-size:  0.8em;
   color:      var(--vscode-descriptionForeground);
@@ -609,6 +635,7 @@ body.show-lines .kind-header                      { border-bottom: 1px solid var
   <button class="tb-btn" data-sort="kind">Kind</button>
   <span class="tb-sep"></span>
   <button class="tb-btn" id="collapseAllBtn" title="Collapse All">⊟ All</button>
+  <button class="tb-btn" id="kindFilterToggle" title="Filter by Kind">⊘</button>
   <button class="tb-btn" id="settingsToggle" title="Toggle settings">⚙</button>
 </div>
 <div class="settings-panel hidden" id="settingsPanel">
@@ -616,6 +643,15 @@ body.show-lines .kind-header                      { border-bottom: 1px solid var
   <button class="tb-btn" id="dedupToggle">Dedup: OFF</button>
   <button class="tb-btn" id="collapseToggle">Collapse: OFF</button>
   <button class="tb-btn" id="fullPathToggle">Full Path: OFF</button>
+</div>
+<div class="kind-filter-panel hidden" id="kindFilterPanel">
+  <button class="tb-btn kind-fbtn c-Definition"     data-kind="Definition">\u25C6 Def</button>
+  <button class="tb-btn kind-fbtn c-Implementation" data-kind="Implementation">\u25B6 Impl</button>
+  <button class="tb-btn kind-fbtn c-Declaration"    data-kind="Declaration">\u25C7 Decl</button>
+  <button class="tb-btn kind-fbtn c-TypeDefinition" data-kind="TypeDefinition">\u25C8 TypeDef</button>
+  <button class="tb-btn kind-fbtn c-Read"           data-kind="Read">\u25CE Read</button>
+  <button class="tb-btn kind-fbtn c-Write"          data-kind="Write">\u25CF Write</button>
+  <button class="tb-btn kind-fbtn c-Reference"      data-kind="Reference">\u25CB Ref</button>
 </div>
 <div class="search-bar">
   <input type="text" class="search-input" id="resultsSearchInput" placeholder="Filter snippets\u2026" spellcheck="false">
@@ -686,12 +722,14 @@ var state = {
   dedupLines:    _saved.dedupLines    !== undefined ? _saved.dedupLines    : DEDUP_DEFAULT,
   collapseAll:   _saved.collapseAll   !== undefined ? _saved.collapseAll   : COLLAPSE_DEFAULT,
   showFullPath:  _saved.showFullPath  !== undefined ? _saved.showFullPath  : SHOW_FULL_PATH_DEFAULT,
-  settingsOpen:  _saved.settingsOpen  || false,
-  resultsHeight: _saved.resultsHeight || 0,   // 0 = авто (50% при первом открытии)
-  resultsFilter: _saved.resultsFilter || '',  // строка фильтра сниппетов
-  historyFilter: _saved.historyFilter || '',  // строка фильтра истории / пинов
+  settingsOpen:    _saved.settingsOpen    || false,
+  kindFilterOpen:  _saved.kindFilterOpen  || false,
+  resultsHeight:   _saved.resultsHeight   || 0,   // 0 = авто (50% при первом открытии)
+  resultsFilter:   _saved.resultsFilter   || '',  // строка фильтра сниппетов
+  historyFilter:   _saved.historyFilter   || '',  // строка фильтра истории / пинов
   searchType:        _saved.searchType        || 'fuzzy', // алгоритм для сниппетов
-  historySearchType: _saved.historySearchType || 'fuzzy'  // алгоритм для истории / пинов
+  historySearchType: _saved.historySearchType || 'fuzzy', // алгоритм для истории / пинов
+  kindFilters:       _saved.kindFilters       || {}  // whitelist { Kind: true }; empty = show all
 };
 
 var currentData = null; // последний полученный SerialResult
@@ -1368,16 +1406,23 @@ function buildSnippetHtml(ref, searchQuery) {
 // ── Применение фильтра сниппетов к текущим результатам ───────────────────
 function applyResultsFilter() {
   var q = state.resultsFilter || '';
+  var kf = state.kindFilters || {};
+  var hasKindFilter = Object.keys(kf).length > 0;
   var rows = document.querySelectorAll('#root .ref-row');
   for (var i = 0; i < rows.length; i++) {
     var idx = parseInt(rows[i].getAttribute('data-idx'), 10);
     var ref = refStore[idx];
     var visible = true;
     if (ref) {
-      var res = buildSnippetHtml(ref, q);
-      var snippetEl = rows[i].querySelector('.snippet');
-      if (snippetEl) { snippetEl.innerHTML = res.html; }
-      visible = !q || res.matched;
+      // Kind filter: if whitelist is non-empty, only show included kinds
+      if (hasKindFilter && !kf[ref.kind]) {
+        visible = false;
+      } else {
+        var res = buildSnippetHtml(ref, q);
+        var snippetEl = rows[i].querySelector('.snippet');
+        if (snippetEl) { snippetEl.innerHTML = res.html; }
+        visible = !q || res.matched;
+      }
     } else {
       visible = !q;
     }
@@ -1503,6 +1548,12 @@ document.getElementById('settingsToggle').addEventListener('click', function() {
   applyState();
 });
 
+document.getElementById('kindFilterToggle').addEventListener('click', function() {
+  state.kindFilterOpen = !state.kindFilterOpen;
+  vscode.setState(state);
+  applyState();
+});
+
 document.getElementById('fullPathToggle').addEventListener('click', function() {
   state.showFullPath = !state.showFullPath;
   vscode.setState(state);
@@ -1510,6 +1561,27 @@ document.getElementById('fullPathToggle').addEventListener('click', function() {
   var root = document.getElementById('root');
   renderData(root);
 });
+
+// Кнопки фильтра по виду ссылки
+(function() {
+  var kbtns = document.querySelectorAll('.kind-fbtn');
+  for (var i = 0; i < kbtns.length; i++) {
+    kbtns[i].addEventListener('click', function() {
+      var kind = this.getAttribute('data-kind');
+      if (!state.kindFilters) { state.kindFilters = {}; }
+      if (state.kindFilters[kind]) {
+        delete state.kindFilters[kind]; // toggle off → remove from whitelist
+      } else {
+        state.kindFilters[kind] = true; // toggle on → add to whitelist
+      }
+      // If all 7 were explicitly turned on then off, kindFilters becomes {}
+      // which means "show all" — that's the correct behaviour
+      vscode.setState(state);
+      applyState();
+      applyResultsFilter();
+    });
+  }
+})();
 
 // ── История и пины ───────────────────────────────────────────────────────────
 
@@ -1713,6 +1785,21 @@ function applyState() {
   if (settingsPanel) { settingsPanel.classList.toggle('hidden', !state.settingsOpen); }
   var settingsBtn = document.getElementById('settingsToggle');
   if (settingsBtn) { settingsBtn.classList.toggle('active', state.settingsOpen); }
+  // Панель фильтрации по виду (отдельная)
+  var kf = state.kindFilters || {};
+  var hasKindFilter = Object.keys(kf).length > 0;
+  var kindPanel = document.getElementById('kindFilterPanel');
+  if (kindPanel) {
+    kindPanel.classList.toggle('hidden', !state.kindFilterOpen);
+    kindPanel.classList.toggle('has-filter', hasKindFilter);
+  }
+  var kindFilterBtn = document.getElementById('kindFilterToggle');
+  if (kindFilterBtn) { kindFilterBtn.classList.toggle('active', state.kindFilterOpen); }
+  var kbtns = document.querySelectorAll('.kind-fbtn');
+  for (var ki = 0; ki < kbtns.length; ki++) {
+    var knd = kbtns[ki].getAttribute('data-kind');
+    kbtns[ki].classList.toggle('active', !!kf[knd]);
+  }
   // Выпадающие списки алгоритмов поиска
   var searchTypeSel = document.getElementById('searchTypeSelect');
   if (searchTypeSel) { searchTypeSel.value = state.searchType || 'fuzzy'; }
