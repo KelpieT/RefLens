@@ -627,6 +627,7 @@ body.show-lines .kind-header                      { border-bottom: 1px solid var
 <div class="toolbar">
   <span class="tb-label">Group:</span>
   <button class="tb-btn" data-mode="file">By File</button>
+  <button class="tb-btn" data-mode="folder">By Folder</button>
   <button class="tb-btn" data-mode="kind">By Kind</button>
   <button class="tb-btn" data-mode="none">None</button>
   <span class="tb-sep"></span>
@@ -898,6 +899,7 @@ function renderData(root) {
   refStore = [];
   var html = '';
   if      (state.groupMode === 'kind') { html = renderByKind(currentData); }
+  else if (state.groupMode === 'folder') { html = renderByFolder(currentData); }
   else if (state.groupMode === 'none') { html = renderFlat(currentData);   }
   else                                  { html = renderByFile(currentData); }
   root.innerHTML = html;
@@ -979,7 +981,65 @@ function renderByFile(data) {
   return html;
 }
 
-function buildFileGroup(fg, symbolName, isSource) {
+// ── Режим «By Folder» (дерево папок, файлы лежат в родительских папках) ───
+function renderByFolder(data) {
+  var root = { name: '', path: '', folders: {}, files: [], count: 0 };
+  for (var i = 0; i < data.fileGroups.length; i++) {
+    var fg    = data.fileGroups[i];
+    var parts = fg.relativePath.split('/');
+    var node  = root;
+    node.count += fg.references.length;
+    for (var p = 0; p < parts.length - 1; p++) {
+      var seg = parts[p];
+      if (!node.folders[seg]) {
+        node.folders[seg] = { name: seg, path: node.path ? node.path + '/' + seg : seg, folders: {}, files: [], count: 0 };
+      }
+      node = node.folders[seg];
+      node.count += fg.references.length;
+    }
+    node.files.push(fg);
+  }
+  return buildFolderChildren(root, data);
+}
+
+function buildFolderChildren(node, data) {
+  var html = '';
+  var names = Object.keys(node.folders).sort();
+  for (var i = 0; i < names.length; i++) {
+    html += buildFolderGroup(node.folders[names[i]], data);
+  }
+  var files = node.files.slice().sort(function(a, b) {
+    return a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0;
+  });
+  for (var f = 0; f < files.length; f++) {
+    var isSource = !!data.sourceFile && files[f].references.length > 0 &&
+                   files[f].references[0].uriString === data.sourceFile;
+    html += buildFileGroup(files[f], data.symbolName, isSource, true);
+  }
+  return html;
+}
+
+function buildFolderGroup(node, data) {
+  // Схлопываем цепочки папок с единственной подпапкой и без файлов: a/b/c
+  var label = node.name;
+  while (node.files.length === 0 && Object.keys(node.folders).length === 1) {
+    node = node.folders[Object.keys(node.folders)[0]];
+    label += '/' + node.name;
+  }
+  return (
+    '<div class="kind-group' + (state.collapseAll ? ' collapsed' : '') + '">' +
+      '<div class="kind-header" tabindex="0" role="button">' +
+        '<span class="chevron"></span>' +
+        '<span class="hdr-icon">\uD83D\uDCC1</span>' +
+        '<span class="hdr-name" title="' + escHtml(node.path) + '">' + escHtml(label) + '</span>' +
+        '<span class="ref-count">' + node.count + '</span>' +
+      '</div>' +
+      '<div class="kind-refs">' + buildFolderChildren(node, data) + '</div>' +
+    '</div>'
+  );
+}
+
+function buildFileGroup(fg, symbolName, isSource, nameOnly) {
   var count     = fg.references.length;
   // collapseAll — постоянная настройка; >20 ссылок — эвристика; isSource — никогда не сворачиваем
   var collapsed = (!isSource && (state.collapseAll || count > 20)) ? ' collapsed' : '';
@@ -990,7 +1050,7 @@ function buildFileGroup(fg, symbolName, isSource) {
     refStore.push(sorted[i]);
     rows += buildRefRow(sorted[i], idx, symbolName, false);
   }
-  var displayName = state.showFullPath
+  var displayName = (state.showFullPath && !nameOnly)
     ? fg.relativePath
     : (fg.relativePath.split('/').pop() || fg.relativePath);
   return (
