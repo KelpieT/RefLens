@@ -15,6 +15,7 @@ References are organized so you can find what you need at a glance:
 | Group mode | Description |
 | --- | --- |
 | **By File** | One collapsible section per file, sorted by reference count |
+| **By Folder** | Collapsible folder tree; files and their references sit under their parent folders |
 | **By Kind** | One section per kind (Definition, Read, Write…), each colored |
 | **None** | Flat list across all files |
 
@@ -88,3 +89,21 @@ Toggle the **Lines** button to draw borders between columns (Kind, Snippet, Loca
 ## Requirements
 
 Any language with a reference provider (TypeScript, JavaScript, C#, Go, Python, Rust, etc.). RefLens delegates all symbol resolution to the active language server — no additional setup needed.
+
+---
+
+## Install from source (local)
+
+Build a `.vsix` and install it into your local VS Code. Requires Node.js.
+
+```bash
+npm install
+npx @vscode/vsce package --allow-missing-repository
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension reflens-1.0.0.vsix --force
+```
+
+(On macOS the full path to the `code` binary is used because the `code` shell command may open a new window instead of running the CLI. If `code` is on your PATH, `code --install-extension ...` works too.)
+
+Then run **Developer: Reload Window**. `--force` replaces any already-installed RefLens, including the marketplace version.
+
+To iterate without installing, open the folder in VS Code and press **F5** to launch an Extension Development Host.
