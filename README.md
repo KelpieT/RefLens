@@ -15,7 +15,7 @@ References are organized so you can find what you need at a glance:
 | Group mode | Description |
 | --- | --- |
 | **By File** | One collapsible section per file, sorted by reference count |
-| **By Folder** | Collapsible folder tree; files and their references sit under their parent folders |
+| **By Folder** | Collapsible folder tree; files and their references sit under their parent folders; **Alt+click** a header to expand/collapse all nested groups |
 | **By Kind** | One section per kind (Definition, Read, Write…), each colored |
 | **None** | Flat list across all files |
 

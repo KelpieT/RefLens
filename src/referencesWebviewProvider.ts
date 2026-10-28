@@ -1530,16 +1530,23 @@ function attachListeners(root) {
   // Заголовки групп (файлов и видов)
   var headers = root.querySelectorAll('.file-header, .kind-header');
   for (var j = 0; j < headers.length; j++) {
-    headers[j].addEventListener('click', toggleCollapse);
+    headers[j].addEventListener('click', function(e) { toggleCollapse.call(this, e); });
     headers[j].addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapse.call(this); }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapse.call(this, e); }
     });
   }
 }
 
-function toggleCollapse() {
+// Alt+click: применяет новое состояние ко всем вложенным группам
+function toggleCollapse(e) {
   var group = this.closest('.file-group, .kind-group');
-  if (group) { group.classList.toggle('collapsed'); }
+  if (!group) { return; }
+  var collapse = !group.classList.contains('collapsed');
+  group.classList.toggle('collapsed', collapse);
+  if (e && e.altKey) {
+    var nested = group.querySelectorAll('.file-group, .kind-group');
+    for (var i = 0; i < nested.length; i++) { nested[i].classList.toggle('collapsed', collapse); }
+  }
 }
 
 // ── Тулбар: кнопки группировки и линий ───────────────────────────────────
