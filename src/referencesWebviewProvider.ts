@@ -342,6 +342,7 @@ body {
   border-radius:  2px;
   white-space:    nowrap;
 }
+.tb-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .tb-btn:hover  { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
 .tb-btn.active {
   background: var(--vscode-button-background);
@@ -627,9 +628,12 @@ body.show-lines .kind-header                      { border-bottom: 1px solid var
 <div class="toolbar">
   <span class="tb-label">Group:</span>
   <button class="tb-btn" data-mode="file">By File</button>
-  <button class="tb-btn" data-mode="folder">By Folder</button>
   <button class="tb-btn" data-mode="kind">By Kind</button>
   <button class="tb-btn" data-mode="none">None</button>
+  <span class="tb-sep"></span>
+  <span class="tb-label">View:</span>
+  <button class="tb-btn" data-view="flat">Flat</button>
+  <button class="tb-btn" data-view="tree">Tree</button>
   <span class="tb-sep"></span>
   <span class="tb-label">Sort:</span>
   <button class="tb-btn" data-sort="line">Line</button>
@@ -717,7 +721,8 @@ var DEDUP_DEFAULT          = ${dedupDefault};
 var COLLAPSE_DEFAULT       = ${collapseDefault};
 var SHOW_FULL_PATH_DEFAULT = ${showFullPathDefault};
 var state = {
-  groupMode:     _saved.groupMode     || 'file',
+  groupMode:     _saved.groupMode === 'folder' ? 'file' : (_saved.groupMode || 'file'),
+  viewMode:      _saved.groupMode === 'folder' ? 'tree' : (_saved.viewMode || 'flat'),
   sortMode:      _saved.sortMode      || 'line',
   showLines:     _saved.showLines     || false,
   dedupLines:    _saved.dedupLines    !== undefined ? _saved.dedupLines    : DEDUP_DEFAULT,
@@ -899,7 +904,6 @@ function renderData(root) {
   refStore = [];
   var html = '';
   if      (state.groupMode === 'kind') { html = renderByKind(currentData); }
-  else if (state.groupMode === 'folder') { html = renderByFolder(currentData); }
   else if (state.groupMode === 'none') { html = renderFlat(currentData);   }
   else                                  { html = renderByFile(currentData); }
   root.innerHTML = html;
@@ -963,6 +967,7 @@ function sortRefs(refs) {
 
 // ── Режим «By File» (группировка по файлу) ───────────────────────────────
 function renderByFile(data) {
+  if (state.viewMode === 'tree') { return renderFolderTree(data.fileGroups, data); }
   // Исходный файл поиска — выводим первым; остальные идут в исходном порядке
   var groups = data.fileGroups.slice();
   if (data.sourceFile) {
@@ -981,11 +986,12 @@ function renderByFile(data) {
   return html;
 }
 
-// ── Режим «By Folder» (дерево папок, файлы лежат в родительских папках) ───
-function renderByFolder(data) {
+// ── Дерево папок (режим просмотра «Tree») ────────────────────────────────
+// groups — массив { relativePath, references }; файлы раскладываются по папкам.
+function renderFolderTree(groups, data) {
   var root = { name: '', path: '', folders: {}, files: [], count: 0 };
-  for (var i = 0; i < data.fileGroups.length; i++) {
-    var fg    = data.fileGroups[i];
+  for (var i = 0; i < groups.length; i++) {
+    var fg    = groups[i];
     var parts = fg.relativePath.split('/');
     var node  = root;
     node.count += fg.references.length;
@@ -1143,12 +1149,22 @@ function renderByKind(data) {
     var icon    = KIND_ICONS[kind]  || '\u25CB';
     var count   = refs.length;
     var rows    = '';
-    var sorted  = dedupByLine(sortRefs(refs)); // сортируем и дедублируем внутри группы вида
-
-    for (var r = 0; r < sorted.length; r++) {
-      var idx = refStore.length;
-      refStore.push(sorted[r]);
-      rows += buildRefRow(sorted[r], idx, data.symbolName, true); // showFile=true
+    if (state.viewMode === 'tree') {
+      // Внутри вида: ссылки по файлам, файлы по дереву папок
+      var byFile = {}, fileList = [];
+      for (var t = 0; t < refs.length; t++) {
+        var rp = refs[t].relativePath;
+        if (!byFile[rp]) { byFile[rp] = { relativePath: rp, references: [] }; fileList.push(byFile[rp]); }
+        byFile[rp].references.push(refs[t]);
+      }
+      rows = renderFolderTree(fileList, { symbolName: data.symbolName, sourceFile: '' });
+    } else {
+      var sorted  = dedupByLine(sortRefs(refs)); // сортируем и дедублируем внутри группы вида
+      for (var r = 0; r < sorted.length; r++) {
+        var idx = refStore.length;
+        refStore.push(sorted[r]);
+        rows += buildRefRow(sorted[r], idx, data.symbolName, true); // showFile=true
+      }
     }
 
     html += (
@@ -1560,6 +1576,15 @@ document.querySelectorAll('.tb-btn[data-mode]').forEach(function(btn) {
   });
 });
 
+document.querySelectorAll('.tb-btn[data-view]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    state.viewMode = this.getAttribute('data-view');
+    vscode.setState(state);
+    applyState();
+    renderData(document.getElementById('root'));
+  });
+});
+
 document.querySelectorAll('.tb-btn[data-sort]').forEach(function(btn) {
   btn.addEventListener('click', function() {
     state.sortMode = this.getAttribute('data-sort');
@@ -1816,6 +1841,12 @@ function applyState() {
   for (var i = 0; i < btns.length; i++) {
     var active = btns[i].getAttribute('data-mode') === state.groupMode;
     btns[i].classList.toggle('active', active);
+  }
+  // Кнопки вида (Flat/Tree): для группировки «None» не применимы
+  var vbtns = document.querySelectorAll('.tb-btn[data-view]');
+  for (var v = 0; v < vbtns.length; v++) {
+    vbtns[v].classList.toggle('active', vbtns[v].getAttribute('data-view') === state.viewMode);
+    vbtns[v].disabled = state.groupMode === 'none';
   }
   // Кнопки сортировки
   var sbtns = document.querySelectorAll('.tb-btn[data-sort]');

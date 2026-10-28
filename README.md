@@ -15,9 +15,10 @@ References are organized so you can find what you need at a glance:
 | Group mode | Description |
 | --- | --- |
 | **By File** | One collapsible section per file, sorted by reference count |
-| **By Folder** | Collapsible folder tree; files and their references sit under their parent folders; **Alt+click** a header to expand/collapse all nested groups |
 | **By Kind** | One section per kind (Definition, Read, Write…), each colored |
 | **None** | Flat list across all files |
+
+The **View** toggle is independent of the group mode: **Flat** lists groups as before, **Tree** nests files under a collapsible folder tree (inside each kind for By Kind). **Alt+click** a group header to expand/collapse all nested groups. View has no effect with None.
 
 ### Reference kinds with color and icon
 
